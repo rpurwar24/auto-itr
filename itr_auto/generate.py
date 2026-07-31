@@ -206,7 +206,10 @@ def build() -> tuple[dict, dict]:
     # 234C: dividend quarterly breakup (DividendIncUs115BBDA) must sum to DividendGross.
     # os_built carries the foreign-dividend quarters (from Vested dates); add domestic dividend.
     itr["ScheduleOS"]["DividendIncUs115BBDA"]["DateRange"]["Upto15Of6"] += domestic_dividend
-    fa = build_schedule_fa(2025)
+    # Schedule FA is on a CALENDAR-year basis: the return for FY YYYY-(YY+1) discloses the calendar
+    # year ending inside it (FY2025-26 -> CY2025). Derive it from fy so this isn't pinned to one year.
+    fa_cy = int(fy.split("-")[0])
+    fa = build_schedule_fa(fa_cy, vested_fy=fy)
     itr["ScheduleFA"] = fa["ScheduleFA"]
     # Table A2 - foreign custodial account (only if the user has a Vested/DriveWealth account)
     ca = _optional(vested_custodial_account, None)
