@@ -113,16 +113,18 @@ def put_config(name: str, payload: dict = Body(...)) -> dict:
     c = _ws(name) / "config"
     for key, fname in (("personal", "personal.json"), ("itr_inputs", "itr_inputs.json"),
                        ("profile", "profile.json")):
-        if key in payload and payload[key] is not None:
-            # keep us_tin in sync with PAN when the user hasn't set a separate TIN
-            if key == "personal":
-                p = payload[key]
-                if p.get("pan") and not p.get("us_tin"):
-                    p["us_tin"] = p["pan"]
-                # encrypt bank passwords at rest (key lives outside the repo)
-                p["bank_passwords"] = {k: vault.encrypt(v)
-                                       for k, v in (p.get("bank_passwords") or {}).items()}
-            (c / fname).write_text(json.dumps(payload[key], indent=2))
+        if key not in payload or payload[key] is None:
+            continue
+        # merge onto what's on disk so fields the form didn't send (e.g. assessment_year,
+        # _README) are never dropped
+        merged = {**_read_json(c / fname, {}), **payload[key]}
+        if key == "personal":
+            if merged.get("pan") and not merged.get("us_tin"):
+                merged["us_tin"] = merged["pan"]
+            # encrypt bank passwords at rest (key lives outside the repo)
+            merged["bank_passwords"] = {k: vault.encrypt(v)
+                                        for k, v in (merged.get("bank_passwords") or {}).items()}
+        (c / fname).write_text(json.dumps(merged, indent=2))
     return {"ok": True}
 
 

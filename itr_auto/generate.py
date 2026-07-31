@@ -56,7 +56,10 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
 
 def build() -> tuple[dict, dict]:
     cfg = json.loads(CONFIG.read_text())
-    fy, ay = cfg["fy"], cfg["assessment_year"]
+    fy = cfg["fy"]
+    # assessment year is the year the FY ends in ("2025-26" -> "2026"); derive it so the
+    # config need not carry it (the UI form doesn't, and it must never be a required field).
+    ay = str(cfg.get("assessment_year") or (int(fy.split("-")[0]) + 1))
     us_tin = json.loads(PERSONAL.read_text())["us_tin"]
     prof = load_profile()                        # employer / TCS collector / foreign country
     ais = parse_ais()                            # AIS = authoritative for TDS/TCS/interest/dividend
