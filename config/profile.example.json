@@ -1,0 +1,33 @@
+{
+  "_README": "Copy this to <workspace>/config/profile.json and edit for a new taxpayer. Every field is optional - anything omitted falls back to the built-in default (see itr_auto/profile.py). Keep all free-text labels alphanumeric+spaces only (the ITD utility rejects / , & % in description fields).",
+
+  "employer": {
+    "TANofEmployer": "AAAA00000A",
+    "NameOfEmployer": "EMPLOYER NAME PVT LTD",
+    "AddressDetail": {"CityOrTownOrDistrict": "CITY", "PinCode": 000000, "StateCode": "31", "AddrDetail": "ADDRESS LINE"},
+    "NatureOfEmployment": "OTH"
+  },
+
+  "salary_component_codes": {
+    "Basic": "1",
+    "Conveyance Allowance": "3",
+    "House Rent Allowance": "4",
+    "Leave Travel Allowance": "5",
+    "Variable Pay": null
+  },
+  "salary_oth_label": "Variable pay",
+
+  "tcs_collector_tan": "BBBB00000B",
+
+  "foreign_country_name": "United States of America",
+  "foreign_country_code": "2",
+  "foreign_custodial_country_name": "UNITED STATES OF AMERICA",
+
+  "fa_equity_entity": {
+    "CountryName": "UNITED STATES OF AMERICA", "CountryCodeExcludingIndia": "2",
+    "NameOfEntity": "FOREIGN EMPLOYER INC.", "AddressOfEntity": "City, State, US",
+    "ZipCode": "00000", "NatureOfEntity": "COMPANY"
+  },
+
+  "marginal_rate": 0.3588
+}

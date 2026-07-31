@@ -1,0 +1,12 @@
+# core pipeline
+numbers-parser==4.18.5     # read the .numbers ground-truth oracle
+pypdf==6.14.2              # Form 16 / ITCS / AIS / bank / trade-confirmation PDFs
+openpyxl==3.1.5            # Zerodha / E*TRADE G&L xlsx
+jsonschema==4.26.0         # validate against the official ITR-2 schema (Draft 4)
+requests==2.34.2           # SBI TTBR + Yahoo price fetchers
+cryptography==49.0.0       # encrypt bank PDF passwords at rest (itr_auto/vault.py)
+
+# local web app (workspace picker, checklist/upload, run, download)
+fastapi==0.141.1
+uvicorn==0.52.0
+python-multipart==0.0.32

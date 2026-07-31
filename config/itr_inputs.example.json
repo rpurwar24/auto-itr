@@ -1,0 +1,13 @@
+{
+  "_README": "Copy to <workspace>/config/itr_inputs.json. Only fy + assessment_year are used by the generator today (income/TDS/TCS are auto-sourced from AIS); the rest are placeholders for manual gaps.",
+  "fy": "2025-26",
+  "assessment_year": "2026",
+  "savings_bank_interest": 0,
+  "domestic_dividend": 0,
+  "domestic_stcg": 0,
+  "domestic_ltcg_112A": 0,
+  "us_tin": "",
+  "shares_value_mar31": null,
+  "salary_tds": 0,
+  "lrs_tcs": 0
+}

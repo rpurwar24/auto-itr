@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>ITR-2 Utility</title>
+<style>
+  :root { --bg:#0f1420; --panel:#171e2e; --line:#2a3346; --ink:#e7ecf5; --mut:#95a0b6;
+          --accent:#4f8cff; --ok:#38c172; --bad:#e3524f; --warn:#e0a83b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:16px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:16px; }
+  header h1 { font-size:17px; margin:0; font-weight:650; }
+  header .sub { color:var(--mut); font-size:12px; }
+  .wrap { max-width:960px; margin:0 auto; padding:24px; display:grid; gap:20px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px 20px; }
+  .panel h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut); margin:0 0 14px; }
+  label { display:block; font-size:12px; color:var(--mut); margin:8px 0 3px; }
+  input, select { width:100%; padding:8px 10px; background:#0d1320; border:1px solid var(--line);
+          border-radius:8px; color:var(--ink); font:inherit; }
+  input:focus, select:focus { outline:none; border-color:var(--accent); }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; }
+  .row3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px 14px; }
+  button { padding:8px 14px; border-radius:8px; border:1px solid var(--line); background:#20293c;
+          color:var(--ink); font:inherit; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  button.link { background:none; border:none; color:var(--accent); padding:2px 4px; }
+  button:disabled { opacity:.45; cursor:default; }
+  .muted { color:var(--mut); }
+  .slot { border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px; }
+  .slot .top { display:flex; align-items:center; gap:10px; }
+  .badge { width:20px; height:20px; border-radius:50%; display:inline-grid; place-items:center;
+          font-size:12px; font-weight:700; flex:none; }
+  .badge.ok { background:rgba(56,193,114,.15); color:var(--ok); }
+  .badge.no { background:rgba(227,82,79,.12); color:var(--bad); }
+  .badge.opt { background:rgba(224,168,59,.12); color:var(--warn); }
+  .slot .label { font-weight:600; }
+  .slot .prov { font-size:11px; color:var(--mut); border:1px solid var(--line); padding:1px 7px; border-radius:20px; }
+  .slot .desc { color:var(--mut); font-size:12px; margin:6px 0 8px; }
+  .files { display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 8px; }
+  .chip { background:#0d1320; border:1px solid var(--line); border-radius:20px; padding:2px 8px 2px 10px;
+          font-size:12px; display:inline-flex; align-items:center; gap:6px; }
+  .chip button { padding:0 2px; border:none; background:none; color:var(--mut); }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:4px 14px; font-size:13px; }
+  .kv .n { color:var(--mut); } .kv .v { text-align:right; font-variant-numeric:tabular-nums; }
+  .big { font-size:24px; font-weight:700; }
+  .err { background:rgba(227,82,79,.08); border:1px solid rgba(227,82,79,.3); border-radius:8px;
+          padding:10px 12px; color:#ffb9b7; white-space:pre-wrap; font-size:12px; margin-top:10px; }
+  .bankrow { display:grid; grid-template-columns:1fr 1fr auto; gap:8px; margin-bottom:6px; align-items:end; }
+  .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .uprow { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .uprow select.tag { max-width:150px; }
+  .hide { display:none !important; }
+  .spin { color:var(--mut); }
+</style>
+</head>
+<body>
+<header>
+  <h1>ITR-2 Utility</h1>
+  <span class="sub">local · document-based · one workspace per person</span>
+</header>
+
+<div class="wrap">
+  <!-- WHO -->
+  <div class="panel">
+    <h2>Who is this for?</h2>
+    <div class="toolbar">
+      <select id="userSel" style="max-width:260px"><option value="">- select a person -</option></select>
+      <span class="muted">or</span>
+      <input id="newName" placeholder="new person's name" style="max-width:200px"/>
+      <input id="newPan" placeholder="PAN (optional)" style="max-width:150px"/>
+      <button id="createBtn">+ Create</button>
+    </div>
+  </div>
+
+  <div id="workspace" class="hide" style="display:grid; gap:20px">
+    <!-- DETAILS -->
+    <div class="panel">
+      <h2>Personal details</h2>
+      <div class="row3">
+        <div><label>PAN</label><input id="f_pan"/></div>
+        <div><label>Date of birth (ddmmyyyy)</label><input id="f_dob" placeholder="10011992"/></div>
+        <div><label>US TIN / passport (FTC)</label><input id="f_tin"/></div>
+      </div>
+      <label style="margin-top:14px">Or prefill from last year's ITR JSON</label>
+      <div class="toolbar">
+        <input type="file" id="oldItr" accept=".json" style="max-width:280px"/>
+        <span id="oldItrMsg" class="muted"></span>
+      </div>
+
+      <h2 style="margin-top:20px">Bank PDF passwords <span class="muted" style="text-transform:none;letter-spacing:0">(key = hdfc / sbi)</span></h2>
+      <div id="banks"></div>
+      <button class="link" id="addBank">+ add bank</button>
+
+      <h2 style="margin-top:20px">Manual inputs / known gaps</h2>
+      <div class="row3">
+        <div><label>Financial year</label><input id="i_fy" value="2025-26"/></div>
+        <div><label>Savings interest</label><input id="i_sav" type="number"/></div>
+        <div><label>Domestic dividend</label><input id="i_div" type="number"/></div>
+        <div><label>Salary TDS</label><input id="i_tds" type="number"/></div>
+        <div><label>LRS TCS</label><input id="i_tcs" type="number"/></div>
+        <div><label>Shares value 31-Mar (AL)</label><input id="i_mar31" type="number"/></div>
+      </div>
+      <div class="toolbar" style="margin-top:14px">
+        <button class="primary" id="saveCfg">Save details</button>
+        <span id="cfgMsg" class="muted"></span>
+      </div>
+    </div>
+
+    <!-- CHECKLIST -->
+    <div class="panel">
+      <h2>Required documents <span id="fyTag" class="muted" style="text-transform:none;letter-spacing:0"></span></h2>
+      <div id="checklist"></div>
+    </div>
+
+    <!-- RUN -->
+    <div class="panel">
+      <h2>Generate return</h2>
+      <div class="toolbar">
+        <button class="primary" id="genBtn">Generate ITR-2 JSON</button>
+        <button id="dlBtn" disabled>Download JSON</button>
+        <span id="genMsg" class="spin"></span>
+      </div>
+      <div id="summary" class="hide" style="margin-top:14px"></div>
+      <div id="genErr" class="hide"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let user = null;
+const api = (p, o) => fetch(`/api/users${p}`, o);
+
+async function loadUsers(sel) {
+  const users = await (await fetch("/api/users")).json();
+  const el = $("#userSel");
+  el.innerHTML = '<option value="">- select a person -</option>' +
+    users.map(u => `<option value="${u}">${u}</option>`).join("");
+  if (sel) el.value = sel;
+}
+
+$("#createBtn").onclick = async () => {
+  const name = $("#newName").value.trim();
+  if (!name) return alert("enter a name");
+  const r = await fetch("/api/users", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({name, pan: $("#newPan").value})});
+  if (!r.ok) return alert((await r.json()).detail || "error");
+  const {name:slug} = await r.json();
+  $("#newName").value = ""; $("#newPan").value = "";
+  await loadUsers(slug); openUser(slug);
+};
+
+$("#userSel").onchange = e => e.target.value ? openUser(e.target.value) : $("#workspace").classList.add("hide");
+
+async function openUser(name) {
+  user = name;
+  $("#workspace").classList.remove("hide");
+  await loadConfig(); await loadChecklist();
+}
+
+// ---- config ----
+function bankRow(k="", v="") {
+  const d = document.createElement("div"); d.className = "bankrow";
+  d.innerHTML = `<div><label>key</label><input class="bk" value="${k}" placeholder="hdfc"/></div>
+    <div><label>password</label><input class="bv" value="${v}"/></div>
+    <button class="link rm">remove</button>`;
+  d.querySelector(".rm").onclick = () => d.remove();
+  return d;
+}
+$("#addBank").onclick = () => $("#banks").appendChild(bankRow());
+
+async function loadConfig() {
+  const c = await (await api(`/${user}/config`)).json();
+  const p = c.personal||{}, i = c.itr_inputs||{};
+  $("#f_pan").value = p.pan||""; $("#f_dob").value = p.dob_ddmmyyyy||""; $("#f_tin").value = p.us_tin||"";
+  $("#banks").innerHTML = "";
+  Object.entries(p.bank_passwords||{}).forEach(([k,v]) => $("#banks").appendChild(bankRow(k,v)));
+  if (!Object.keys(p.bank_passwords||{}).length) $("#banks").appendChild(bankRow());
+  $("#i_fy").value = i.fy||"2025-26"; $("#i_sav").value = i.savings_bank_interest||"";
+  $("#i_div").value = i.domestic_dividend||""; $("#i_tds").value = i.salary_tds||"";
+  $("#i_tcs").value = i.lrs_tcs||""; $("#i_mar31").value = i.shares_value_mar31||"";
+}
+
+$("#saveCfg").onclick = async () => {
+  const banks = {};
+  document.querySelectorAll(".bankrow").forEach(r => {
+    const k = r.querySelector(".bk").value.trim(), v = r.querySelector(".bv").value;
+    if (k) banks[k] = v;
+  });
+  const num = id => { const x = $(id).value; return x===""? 0 : Number(x); };
+  const personal = {pan:$("#f_pan").value.trim().toUpperCase(), dob_ddmmyyyy:$("#f_dob").value.trim(),
+    us_tin:$("#f_tin").value.trim(), bank_passwords:banks};
+  const itr_inputs = {fy:$("#i_fy").value.trim(), savings_bank_interest:num("#i_sav"),
+    domestic_dividend:num("#i_div"), salary_tds:num("#i_tds"), lrs_tcs:num("#i_tcs"),
+    shares_value_mar31: $("#i_mar31").value===""? null : num("#i_mar31")};
+  await api(`/${user}/config`, {method:"PUT", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({personal, itr_inputs})});
+  $("#cfgMsg").textContent = "saved ✓"; setTimeout(()=>$("#cfgMsg").textContent="", 2000);
+  loadChecklist();
+};
+
+$("#oldItr").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const fd = new FormData(); fd.append("file", f);
+  const r = await api(`/${user}/import-old-itr`, {method:"POST", body:fd});
+  const j = await r.json();
+  if (!r.ok) { $("#oldItrMsg").textContent = j.detail||"could not read"; return; }
+  $("#oldItrMsg").textContent = `prefilled PAN ${j.pan}`; loadConfig();
+};
+
+// ---- checklist ----
+async function loadChecklist() {
+  const {fy, slots} = await (await api(`/${user}/checklist`)).json();
+  $("#fyTag").textContent = `· FY ${fy}`;
+  const box = $("#checklist"); box.innerHTML = "";
+  for (const s of slots) {
+    const badge = s.present ? `<span class="badge ok">✓</span>`
+      : (s.required ? `<span class="badge no">!</span>` : `<span class="badge opt">·</span>`);
+    const el = document.createElement("div"); el.className = "slot";
+    el.innerHTML = `<div class="top">${badge}<span class="label">${s.label}</span>
+      <span class="prov">${s.provider}</span>
+      <span class="muted" style="margin-left:auto;font-size:11px">${s.required?"required":"optional"}${s.multiple?" · multiple":""}</span></div>
+      <div class="desc">${s.desc}</div>
+      <div class="files">${s.files.map(f=>`<span class="chip">${f}<button data-f="${f}">×</button></span>`).join("")}</div>
+      <div class="uprow">
+        ${s.tag ? `<select class="tag" title="${s.tag.label}">${s.tag.options.map(o=>`<option value="${o}">${s.tag.label}: ${o}</option>`).join("")}</select>` : ""}
+        <input type="file" accept="${s.accept}" ${s.multiple?"multiple":""}/>
+        ${s.multiple ? `<span class="muted" style="font-size:11px">select several at once, or add more later</span>` : ""}
+      </div>`;
+    const tagSel = el.querySelector(".tag");
+    el.querySelector("input[type=file]").onchange = ev => uploadTo(s.id, ev.target.files, tagSel ? tagSel.value : null);
+    el.querySelectorAll(".chip button").forEach(b => b.onclick = () => delFile(s.dest, b.dataset.f));
+    box.appendChild(el);
+  }
+}
+async function uploadTo(slot_id, files, tag) {
+  const fd = new FormData(); fd.append("slot_id", slot_id);
+  if (tag) fd.append("tag", tag);
+  for (const f of files) fd.append("files", f);
+  await api(`/${user}/upload`, {method:"POST", body:fd});
+  loadChecklist();
+}
+async function delFile(dest, filename) {
+  await api(`/${user}/file?dest=${encodeURIComponent(dest)}&filename=${encodeURIComponent(filename)}`,
+    {method:"DELETE"});
+  loadChecklist();
+}
+
+// ---- generate ----
+$("#genBtn").onclick = async () => {
+  $("#genMsg").textContent = "running the pipeline…"; $("#summary").classList.add("hide");
+  $("#genErr").classList.add("hide"); $("#dlBtn").disabled = true;
+  const j = await (await api(`/${user}/generate`, {method:"POST"})).json();
+  $("#genMsg").textContent = "";
+  if (!j.ok) { $("#genErr").className = "err"; $("#genErr").textContent = j.error || "failed"; return; }
+  const s = j.summary, fmt = n => typeof n==="number" ? n.toLocaleString("en-IN") : n;
+  const rows = [["Salary","salary"],["Capital gains","capital_gains"],["Other sources","other_sources"],
+    ["Gross total income","gross_total_income"],["Gross tax","gross_tax"],["FTC relief","ftc_relief"],
+    ["TDS","tds"],["TCS","tcs"]];
+  $("#summary").className = "";
+  $("#summary").innerHTML =
+    `<div class="big">₹ ${fmt(s.net_tax_payable)} <span class="muted" style="font-size:13px">tax payable (before 234B/C interest)</span></div>
+     <div class="kv" style="margin-top:10px">${rows.map(([l,k])=>`<div class="n">${l}</div><div class="v">₹ ${fmt(s[k])}</div>`).join("")}</div>
+     ${j.errors.length? `<div class="err" style="margin-top:10px">${j.errors.length} schema issue(s):\n${j.errors.slice(0,8).join("\n")}</div>`
+        : `<div class="muted" style="margin-top:10px">✓ schema-valid · ${s.fa_rows.total} foreign-asset rows</div>`}`;
+  $("#dlBtn").disabled = false;
+};
+$("#dlBtn").onclick = () => location.href = `/api/users/${user}/download`;
+
+loadUsers();
+</script>
+</body>
+</html>

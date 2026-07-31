@@ -1,0 +1,10 @@
+month,ttbr,note
+# SBI Telegraphic-Transfer BUYING rate (USD->INR), one row per calendar month.
+# ttbr = SBI TTBR as on the LAST working day of that month (the value Rule 115 points to).
+# Rates researched 2026-07-29 and cross-checked across >=2 independent Rule-115 archives
+# (gainsutra.com, taxroutine.com, itrfa.in). VERIFY against sbi.co.in before final filing.
+2025-08,87.70,last working day 30-08-2025; corroborated gainsutra+taxroutine+search
+2025-09,88.35,last working day 30-09-2025; corroborated gainsutra+taxroutine
+2025-12,89.47,last working day 31-12-2025; corroborated gainsutra+taxroutine+search
+2026-06,93.95,last working day 29-06-2026; corroborated gainsutra+taxroutine (next-yr)
+# 2026-03 DISPUTED across sources (93.50 vs 93.15) - resolve before FY2026-27 filing.

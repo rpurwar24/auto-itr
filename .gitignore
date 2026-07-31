@@ -1,0 +1,30 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+output/
+
+# personal input documents + secrets (all providers)
+sources/
+config/personal.json
+reference/fx/sbi_daily_cache.json
+reference/prices/
+archive/
+
+# exported/prefill ITR JSONs (contain identity + full financials)
+prefilled/
+*_upload_*.json
+BESPP*.json
+*Prefill*.json
+
+# per-user workspaces: each person's private sources/config/output (never shared)
+.users/
+
+# personal project memory + real config (kept local; only *.example.json is shared)
+CLAUDE.md
+config/itr_inputs.json
+config/profile.json
+
+# tests back-test against real filed figures (income) -> keep local, never publish
+tests/
+
