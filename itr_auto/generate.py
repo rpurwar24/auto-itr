@@ -54,6 +54,18 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
     return base
 
 
+def _optional(fn, default):
+    """Run an optional provider's producer; if its documents aren't present, contribute nothing.
+
+    A missing file raises FileNotFoundError (most parsers) or IndexError (glob[0]); anything else
+    (a present-but-corrupt file) propagates as a real error rather than being silently dropped.
+    """
+    try:
+        return fn()
+    except (FileNotFoundError, IndexError):
+        return default
+
+
 def build() -> tuple[dict, dict]:
     cfg = json.loads(CONFIG.read_text())
     fy = cfg["fy"]
@@ -67,20 +79,25 @@ def build() -> tuple[dict, dict]:
     savings_interest = ais["savings_bank_interest"]
     term_deposit_interest = ais["term_deposit_interest"]
     domestic_dividend = ais["domestic_dividend"]
-    cgp = current_year_cg(fy)                    # auto-computed foreign STCG / LTCG (no hardcoding)
+    # foreign RSU/ESPP sales (E*TRADE G&L + ESOP statements) - absent for a user with no RSUs
+    _ZERO_CG = {"stcg": 0, "ltcg": 0, "lt_proceeds": 0, "lt_cost": 0,
+                "st_proceeds": 0, "st_cost": 0, "lots": []}
+    cgp = _optional(lambda: current_year_cg(fy), _ZERO_CG)
     # Derive gains as (rounded consideration - rounded cost) so our BalanceCG / set-off / accrual match
     # how the Utility recomputes them (it does FullConsideration - TotalDedn; summing per-lot rounded
     # gains drifts by ~Re1 and re-triggers the "Table F != BFLA 3vii" validation).
     stcg = _r(cgp["st_proceeds"]) - _r(cgp["st_cost"])
     ltcg_gross = _r(cgp["lt_proceeds"]) - _r(cgp["lt_cost"])
-    dom = parse_zerodha_taxpnl()                 # domestic equity-MF: STCG 111A + LTCG 112A
+    # domestic equity-MF (Zerodha Tax P&L) - absent for a user with no Zerodha account
+    _ZERO_DOM = {"stcg_111A": {"sale": 0, "cost": 0}, "ltcg_112A": {"sale": 0, "cost": 0}}
+    dom = _optional(parse_zerodha_taxpnl, _ZERO_DOM)
     d_stcg_sale = _r(dom["stcg_111A"]["sale"]); d_stcg_cost = _r(dom["stcg_111A"]["cost"]); d_stcg = d_stcg_sale - d_stcg_cost
     d_ltcg_sale = _r(dom["ltcg_112A"]["sale"]); d_ltcg_cost = _r(dom["ltcg_112A"]["cost"]); d_ltcg = d_ltcg_sale - d_ltcg_cost
 
     prior = json.loads(BASE.read_text())["ITR"]["ITR2"]
     itr = copy.deepcopy(prior)                 # start from the real prefill (keeps personal/bank/defaults)
     itr["Form_ITR2"]["AssessmentYear"] = ay
-    itr["CreationInfo"]["JSONCreationDate"] = "2026-07-30"
+    itr.setdefault("CreationInfo", {})["JSONCreationDate"] = "2026-07-30"
     itr["PartA_GEN1"]["FilingStatus"]["ItrFilingDueDate"] = "2026-07-31"
 
     # ---- income schedules ----
@@ -96,98 +113,118 @@ def build() -> tuple[dict, dict]:
     itr["ScheduleOS"]["DividendIncUs115BBDA"]["DateRange"]["Upto15Of6"] += domestic_dividend
     fa = build_schedule_fa(2025)
     itr["ScheduleFA"] = fa["ScheduleFA"]
-    # Table A2 - foreign custodial account (DriveWealth); A3-only builder omits it
-    ca = vested_custodial_account()
-    vh = vested_fa_holdings()
-    itr["ScheduleFA"]["DtlsForeignCustodialAcc"] = [{
-        "CountryName": prof["foreign_custodial_country_name"],
-        "CountryCodeExcludingIndia": prof["foreign_country_code"],
-        "FinancialInstName": ca["institution"], "FinancialInstAddress": ca["address"],
-        "ZipCode": ca["zip"], "AccountNumber": ca["account_number"], "Status": "OWNER",
-        "AccOpenDate": ca["opened"],
-        "PeakBalanceDuringPeriod": _r(sum(h["peak_inr"] for h in vh)),
-        "ClosingBalance": _r(sum(h["closing_inr"] for h in vh)),
-        "GrossAmtPaidCredited": _r(sum(h.get("gross_paid_inr", 0) for h in vh)),
-        "NatureOfAmount": "D"}]
+    # Table A2 - foreign custodial account (only if the user has a Vested/DriveWealth account)
+    ca = _optional(vested_custodial_account, None)
+    vh = _optional(vested_fa_holdings, [])
+    if ca and vh:
+        itr["ScheduleFA"]["DtlsForeignCustodialAcc"] = [{
+            "CountryName": prof["foreign_custodial_country_name"],
+            "CountryCodeExcludingIndia": prof["foreign_country_code"],
+            "FinancialInstName": ca["institution"], "FinancialInstAddress": ca["address"],
+            "ZipCode": ca["zip"], "AccountNumber": ca["account_number"], "Status": "OWNER",
+            "AccOpenDate": ca["opened"],
+            "PeakBalanceDuringPeriod": _r(sum(h["peak_inr"] for h in vh)),
+            "ClosingBalance": _r(sum(h["closing_inr"] for h in vh)),
+            "GrossAmtPaidCredited": _r(sum(h.get("gross_paid_inr", 0) for h in vh)),
+            "NatureOfAmount": "D"}]
 
     # Set-off (Sec 70/74): net STCG (foreign loss + domestic 111A) sets off against net LTCG.
     so = set_off(stcg=stcg + d_stcg, ltcg=ltcg_gross + d_ltcg)
     taxable_cg = _r(so.taxable_ltcg)                 # net CG after intra-head set-off
     taxable_ltcg = _r(so.taxable_ltcg)
 
+    has_f_st = bool(_r(cgp["st_proceeds"]) or _r(cgp["st_cost"]))   # foreign STCG present
+    has_f_lt = bool(_r(cgp["lt_proceeds"]) or _r(cgp["lt_cost"]))   # foreign LTCG present
+    has_d_st = bool(d_stcg_sale or d_stcg_cost)                     # domestic 111A present
+    has_d_lt = bool(d_ltcg_sale or d_ltcg_cost)                     # domestic 112A present
+
     def _ded(cost):
         return {"AquisitCost": cost, "ImproveCost": 0, "ExpOnTrans": 0, "TotalDedn": cost}
 
-    cg = skeleton_of("ScheduleCGFor23")
-    st = cg["ShortTermCapGainFor23"]
-    # foreign STCG (net loss) - resident "sale of other assets" (slab/applicable rate).
-    # NOTE: FullConsideration is a COMPUTED field (= sum of the Consd sub-fields); the proceeds MUST go
-    # into FullValueConsdOthUnqshr or the Utility recomputes FullConsideration=0 and inverts it to a loss.
-    st["SaleOnOtherAssets"] = {**st.get("SaleOnOtherAssets", {}),
-                               "FullValueConsdRecvUnqshr": 0, "FairMrktValueUnqshr": 0, "FullValueConsdSec50CA": 0,
-                               "FullValueConsdOthUnqshr": cgp["st_proceeds"], "FullConsideration": cgp["st_proceeds"],
-                               "DeductSec48": _ded(cgp["st_cost"]), "BalanceCG": _r(stcg), "CapgainonAssets": _r(stcg)}
-    # domestic equity-MF STCG u/s 111A (20%)
-    st["EquityMFonSTT"] = [{"MFSectionCode": "1A", "EquityMFonSTTDtls": {
-        "FullConsideration": d_stcg_sale, "DeductSec48": _ded(d_stcg_cost),
-        "BalanceCG": d_stcg, "LossSec94of7Or94of8": 0, "CapgainonAssets": d_stcg}}]
-    st["TotalSTCG"] = _r(stcg) + d_stcg
+    if has_f_st or has_f_lt or has_d_st or has_d_lt:
+        cg = skeleton_of("ScheduleCGFor23")
+        st = cg["ShortTermCapGainFor23"]
+        if has_f_st:
+            # foreign STCG - resident "sale of other assets" (slab). FullConsideration is COMPUTED
+            # (= sum of the Consd sub-fields); proceeds MUST go into FullValueConsdOthUnqshr or the
+            # Utility recomputes FullConsideration=0 and inverts it to a loss.
+            st["SaleOnOtherAssets"] = {**st.get("SaleOnOtherAssets", {}),
+                                       "FullValueConsdRecvUnqshr": 0, "FairMrktValueUnqshr": 0, "FullValueConsdSec50CA": 0,
+                                       "FullValueConsdOthUnqshr": cgp["st_proceeds"], "FullConsideration": cgp["st_proceeds"],
+                                       "DeductSec48": _ded(cgp["st_cost"]), "BalanceCG": _r(stcg), "CapgainonAssets": _r(stcg)}
+        if has_d_st:
+            # domestic equity-MF STCG u/s 111A (20%)
+            st["EquityMFonSTT"] = [{"MFSectionCode": "1A", "EquityMFonSTTDtls": {
+                "FullConsideration": d_stcg_sale, "DeductSec48": _ded(d_stcg_cost),
+                "BalanceCG": d_stcg, "LossSec94of7Or94of8": 0, "CapgainonAssets": d_stcg}}]
+        st["TotalSTCG"] = (_r(stcg) if has_f_st else 0) + (d_stcg if has_d_st else 0)
 
-    lt = cg["LongTermCapGain23"]
-    # foreign shares LTCG u/s 112 @12.5% - resident "sale of asset" block
-    lt["SaleofAssetNADtls"] = {"SaleofAssetNA": {
-        "FullValueConsdRecvUnqshr": 0, "FairMrktValueUnqshr": 0, "FullValueConsdSec50CA": 0,
-        "FullValueConsdOthUnqshr": cgp["lt_proceeds"], "FullConsideration": cgp["lt_proceeds"],
-        "DeductSec48": _ded(cgp["lt_cost"]), "BalanceCG": _r(ltcg_gross),
-        "DeductionUs54F": 0, "CapgainonAssets": _r(ltcg_gross)}}
-    # domestic equity-MF LTCG u/s 112A (12.5%, first 1.25L exempt)
-    lt["SaleOfEquityShareUs112A"] = {"BalanceCG": d_ltcg, "DeductionUs54F": 0, "CapgainonAssets": d_ltcg}
-    lt["TotalLTCG"] = _r(ltcg_gross) + d_ltcg
+        lt = cg["LongTermCapGain23"]
+        if has_f_lt:
+            # foreign shares LTCG u/s 112 @12.5% - resident "sale of asset" block
+            lt["SaleofAssetNADtls"] = {"SaleofAssetNA": {
+                "FullValueConsdRecvUnqshr": 0, "FairMrktValueUnqshr": 0, "FullValueConsdSec50CA": 0,
+                "FullValueConsdOthUnqshr": cgp["lt_proceeds"], "FullConsideration": cgp["lt_proceeds"],
+                "DeductSec48": _ded(cgp["lt_cost"]), "BalanceCG": _r(ltcg_gross),
+                "DeductionUs54F": 0, "CapgainonAssets": _r(ltcg_gross)}}
+        if has_d_lt:
+            # domestic equity-MF LTCG u/s 112A (12.5%, first 1.25L exempt)
+            lt["SaleOfEquityShareUs112A"] = {"BalanceCG": d_ltcg, "DeductionUs54F": 0, "CapgainonAssets": d_ltcg}
+        lt["TotalLTCG"] = (_r(ltcg_gross) if has_f_lt else 0) + (d_ltcg if has_d_lt else 0)
 
-    cg["SumOfCGIncm"] = taxable_cg
-    cg["TotScheduleCGFor23"] = taxable_cg
-    # Table F (234C): LTCG @12.5% accrual must equal BFLA 3vii (= net LTCG after set-off).
-    # All foreign LTCG sales fell in Q3 (16/9-15/12); put the net taxable LTCG there.
-    cg["AccruOrRecOfCG"]["LongTermUnder12_5Per"]["DateRange"]["Up16Of9To15Of12"] = taxable_cg
-    itr["ScheduleCGFor23"] = cg
+        cg["SumOfCGIncm"] = taxable_cg
+        cg["TotScheduleCGFor23"] = taxable_cg
+        # Table F (234C): LTCG @12.5% accrual must equal BFLA 3vii (= net LTCG after set-off).
+        cg["AccruOrRecOfCG"]["LongTermUnder12_5Per"]["DateRange"]["Up16Of9To15Of12"] = taxable_cg
+        itr["ScheduleCGFor23"] = cg
 
-    # Schedule 112A (domestic equity-MF LTCG line items)
-    itr["Schedule112A"] = {
-        "SaleValue112A": d_ltcg_sale, "CostAcqWithoutIndx112A": d_ltcg_cost, "AcquisitionCost112A": d_ltcg_cost,
-        "LTCGBeforelowerB1B2112A": d_ltcg, "FairMktValueCapAst112A": 0, "ExpExclCnctTransfer112A": 0,
-        "Deductions112A": d_ltcg_cost, "Balance112A": d_ltcg, "TotalBalance112A": d_ltcg,
-        "Schedule112ADtls": [{
-            "ShareOnOrBefore": "AE", "ISINCode": "INNOTREQUIRD", "ShareUnitName": "CONSOLIDATED",
-            "NumSharesUnits": 0, "SalePricePerShareUnit": 0, "TotSaleValue": d_ltcg_sale,
-            "CostAcqWithoutIndx": d_ltcg_cost, "AcquisitionCost": d_ltcg_cost, "LTCGBeforelowerB1B2": d_ltcg,
-            "FairMktValuePerShareunit": 0, "TotFairMktValueCapAst": 0, "ExpExclCnctTransfer": 0,
-            "TotalDeductions": d_ltcg_cost, "Balance": d_ltcg}]}
+        if has_d_lt:
+            # Schedule 112A (domestic equity-MF LTCG line items)
+            itr["Schedule112A"] = {
+                "SaleValue112A": d_ltcg_sale, "CostAcqWithoutIndx112A": d_ltcg_cost, "AcquisitionCost112A": d_ltcg_cost,
+                "LTCGBeforelowerB1B2112A": d_ltcg, "FairMktValueCapAst112A": 0, "ExpExclCnctTransfer112A": 0,
+                "Deductions112A": d_ltcg_cost, "Balance112A": d_ltcg, "TotalBalance112A": d_ltcg,
+                "Schedule112ADtls": [{
+                    "ShareOnOrBefore": "AE", "ISINCode": "INNOTREQUIRD", "ShareUnitName": "CONSOLIDATED",
+                    "NumSharesUnits": 0, "SalePricePerShareUnit": 0, "TotSaleValue": d_ltcg_sale,
+                    "CostAcqWithoutIndx": d_ltcg_cost, "AcquisitionCost": d_ltcg_cost, "LTCGBeforelowerB1B2": d_ltcg,
+                    "FairMktValuePerShareunit": 0, "TotFairMktValueCapAst": 0, "ExpExclCnctTransfer": 0,
+                    "TotalDeductions": d_ltcg_cost, "Balance": d_ltcg}]}
+        else:
+            itr.pop("Schedule112A", None)
+    else:
+        itr.pop("ScheduleCGFor23", None)   # no capital gains at all
+        itr.pop("Schedule112A", None)
 
-    # ---- foreign tax credit: FSI + TR1 ----
-    ftc = compute_ftc(fy, tin=us_tin)
-    othsrc = {"IncFrmOutsideInd": ftc["income_inr"], "TaxPaidOutsideInd": ftc["tax_paid_outside_inr"],
-              "TaxPayableinInd": ftc["tax_payable_india_inr"], "TaxReliefinInd": ftc["relief_inr"],
-              "DTAAReliefUs90or90A": "90"}
-    zero_head = {"IncFrmOutsideInd": 0, "TaxPaidOutsideInd": 0, "TaxPayableinInd": 0,
-                 "TaxReliefinInd": 0, "DTAAReliefUs90or90A": "90"}
-    total = {k: v for k, v in othsrc.items() if k != "DTAAReliefUs90or90A"}
-    itr["ScheduleFSI"] = {"ScheduleFSIDtls": [{
-        "CountryName": prof["foreign_country_name"],
-        "CountryCodeExcludingIndia": prof["foreign_country_code"],
-        "TaxIdentificationNo": us_tin, "IncFromSal": dict(zero_head),
-        "IncFromHP": dict(zero_head), "IncCapGain": dict(zero_head),
-        "IncOthSrc": othsrc, "TotalCountryWise": total}]}
-    itr["ScheduleTR1"] = {
-        "ScheduleTR": [{"CountryName": prof["foreign_country_name"],
-                        "CountryCodeExcludingIndia": prof["foreign_country_code"],
-                        "TaxIdentificationNo": us_tin,
-                        "TaxPaidOutsideIndia": ftc["tax_paid_outside_inr"],
-                        "TaxReliefOutsideIndia": ftc["relief_inr"],
-                        "ReliefClaimedUsSection": "90"}],
-        "TotalTaxPaidOutsideIndia": ftc["tax_paid_outside_inr"],
-        "TotalTaxReliefOutsideIndia": ftc["relief_inr"],
-        "TaxReliefOutsideIndiaDTAA": ftc["relief_inr"], "TaxReliefOutsideIndiaNotDTAA": 0,
-        "TaxPaidOutsideIndFlg": "YES", "AssmtYrTaxRelief": ay + "-" + str((int(ay) + 1) % 100).zfill(2)}
+    # ---- foreign tax credit: FSI + TR1 (only if there is foreign income to claim credit on) ----
+    ftc = compute_ftc(fy, tin=us_tin)            # returns zeros if no Vested/foreign workbook
+    if ftc["income_inr"] > 0:
+        othsrc = {"IncFrmOutsideInd": ftc["income_inr"], "TaxPaidOutsideInd": ftc["tax_paid_outside_inr"],
+                  "TaxPayableinInd": ftc["tax_payable_india_inr"], "TaxReliefinInd": ftc["relief_inr"],
+                  "DTAAReliefUs90or90A": "90"}
+        zero_head = {"IncFrmOutsideInd": 0, "TaxPaidOutsideInd": 0, "TaxPayableinInd": 0,
+                     "TaxReliefinInd": 0, "DTAAReliefUs90or90A": "90"}
+        total = {k: v for k, v in othsrc.items() if k != "DTAAReliefUs90or90A"}
+        itr["ScheduleFSI"] = {"ScheduleFSIDtls": [{
+            "CountryName": prof["foreign_country_name"],
+            "CountryCodeExcludingIndia": prof["foreign_country_code"],
+            "TaxIdentificationNo": us_tin, "IncFromSal": dict(zero_head),
+            "IncFromHP": dict(zero_head), "IncCapGain": dict(zero_head),
+            "IncOthSrc": othsrc, "TotalCountryWise": total}]}
+        itr["ScheduleTR1"] = {
+            "ScheduleTR": [{"CountryName": prof["foreign_country_name"],
+                            "CountryCodeExcludingIndia": prof["foreign_country_code"],
+                            "TaxIdentificationNo": us_tin,
+                            "TaxPaidOutsideIndia": ftc["tax_paid_outside_inr"],
+                            "TaxReliefOutsideIndia": ftc["relief_inr"],
+                            "ReliefClaimedUsSection": "90"}],
+            "TotalTaxPaidOutsideIndia": ftc["tax_paid_outside_inr"],
+            "TotalTaxReliefOutsideIndia": ftc["relief_inr"],
+            "TaxReliefOutsideIndiaDTAA": ftc["relief_inr"], "TaxReliefOutsideIndiaNotDTAA": 0,
+            "TaxPaidOutsideIndFlg": "YES", "AssmtYrTaxRelief": ay + "-" + str((int(ay) + 1) % 100).zfill(2)}
+    else:
+        itr.pop("ScheduleFSI", None)
+        itr.pop("ScheduleTR1", None)
 
     # ---- taxes paid ----
     itr["ScheduleTDS1"] = {"TDSonSalary": [{
@@ -195,21 +232,32 @@ def build() -> tuple[dict, dict]:
             "EmployerOrDeductorOrCollecterName": prof["employer"]["NameOfEmployer"]},
         "IncChrgSal": _r(itcs["income_under_salary"]), "TotalTDSSal": salary_tds}],
         "TotalTDSonSalaries": salary_tds}
-    itr["ScheduleTCS"] = {"TCS": [{
-        "EmployerOrDeductorOrCollectTAN": prof["tcs_collector_tan"], "TCSCreditOwner": "1",
-        "TCSCurrFYDtls": {"TCSAmtCollOwnHand": lrs_tcs, "TCSAmtCollSpouseOrOthrHand": 0},
-        "TCSClaimedThisYearDtls": {"TCSAmtCollOwnHand": lrs_tcs, "TCSAmtCollSpouseOrOthrHand": 0},
-        "AmtCarriedFwd": 0}], "TotalSchTCS": lrs_tcs}
+    if lrs_tcs:
+        itr["ScheduleTCS"] = {"TCS": [{
+            "EmployerOrDeductorOrCollectTAN": prof["tcs_collector_tan"], "TCSCreditOwner": "1",
+            "TCSCurrFYDtls": {"TCSAmtCollOwnHand": lrs_tcs, "TCSAmtCollSpouseOrOthrHand": 0},
+            "TCSClaimedThisYearDtls": {"TCSAmtCollOwnHand": lrs_tcs, "TCSAmtCollSpouseOrOthrHand": 0},
+            "AmtCarriedFwd": 0}], "TotalSchTCS": lrs_tcs}
+    else:
+        itr.pop("ScheduleTCS", None)          # no LRS remittance -> no TCS
 
     # ---- Schedule AL: shares = foreign (FA closing) + Indian (Zerodha); deposits = bank + FD ----
+    # (AL is only mandatory when total income > 50L; build it only if the prefill carries it)
     foreign_shares = sum(r["ClosingBalance"] for r in fa["ScheduleFA"]["DtlsForeignEquityDebtInterest"])
-    zh = parse_zerodha()
+    zh = _optional(parse_zerodha, {"holdings_market_value": 0})
     bk = parse_bank()
-    al = copy.deepcopy(prior["ScheduleAL"])
-    al["MovableAsset"]["SharesAndSecurities"] = _r(foreign_shares + zh["holdings_market_value"])
-    al["MovableAsset"]["DepositsInBank"] = bk["deposits_for_AL"]   # HDFC savings + FD (+ 4766/SBI: manual)
-    al.pop("ImmovableDetails", None)   # "Do you own immovable asset?" is UI-only (no JSON field); user picks "No"
-    itr["ScheduleAL"] = al
+    if "ScheduleAL" in prior:
+        al = copy.deepcopy(prior["ScheduleAL"])
+        al["MovableAsset"]["SharesAndSecurities"] = _r(foreign_shares + zh["holdings_market_value"])
+        al["MovableAsset"]["DepositsInBank"] = bk["deposits_for_AL"]   # HDFC savings + FD (+ 4766/SBI: manual)
+        al.pop("ImmovableDetails", None)   # "Do you own immovable asset?" is UI-only; user picks "No"
+        itr["ScheduleAL"] = al
+
+    # foreign-asset question: YES only if there are foreign assets/income (drop empty FA otherwise)
+    fa_rows = itr.get("ScheduleFA", {}).get("DtlsForeignEquityDebtInterest", [])
+    has_foreign = bool(fa_rows) or ftc["income_inr"] > 0 or bool(ca and vh)
+    if not has_foreign:
+        itr.pop("ScheduleFA", None)
 
     # ---- PartB-TI ----
     salary = _r(itcs["income_under_salary"])
@@ -232,7 +280,7 @@ def build() -> tuple[dict, dict]:
     net_liability = _r(tr.gross_tax) - relief
     bal = net_liability - total_paid
     itr["PartB_TTI"] = _deep_merge(skeleton_of("PartB_TTI"), {
-        "AssetOutIndiaFlag": "YES",
+        "AssetOutIndiaFlag": "YES" if has_foreign else "NO",
         "ComputationOfTaxLiability": {
             "TaxPayableOnTI": {"TaxAtNormalRatesOnAggrInc": _r(tr.tax_normal),
                 "TaxAtSpecialRates": _r(tr.tax_special), "RebateOnAgriInc": 0,
@@ -245,7 +293,7 @@ def build() -> tuple[dict, dict]:
         "TaxPaid": {"TaxesPaid": {"AdvanceTax": 0, "SelfAssessmentTax": 0, "TDS": salary_tds,
             "TCS": lrs_tcs, "TotalTaxesPaid": total_paid}, "BalTaxPayable": max(0, _r(bal))},
         "Refund": {"RefundDue": max(0, -_r(bal)),
-                   "BankAccountDtls": prior["PartB_TTI"]["Refund"]["BankAccountDtls"]}})
+                   "BankAccountDtls": prior.get("PartB_TTI", {}).get("Refund", {}).get("BankAccountDtls", [])}})
 
     summary = {"salary": salary, "capital_gains": taxable_ltcg, "other_sources": os_inc,
                "gross_total_income": gti, "gross_tax": _r(tr.gross_tax), "ftc_relief": relief,

@@ -71,6 +71,11 @@ def build_adobe_fa(year: int, marks: dict[str, Any] | None = None,
     """marks/rates default to live auto-fetch; pass overrides to back-test old years
     (SBI's S3 rate cards don't go back far)."""
     holdings = _holdings_by_vest()
+    if not holdings:
+        # no RSU/ESPP holdings for this user -> no foreign-equity rows (and skip the price fetch)
+        return {"year": year, "peak_price": None, "peak_date": None, "peak_rate": None,
+                "close_price": None, "close_rate": None, "rows": [],
+                "totals": {"initial": 0, "peak": 0, "closing": 0, "proceeds": 0}}
     sales = _sales_by_vest()
     marks = marks or year_marks("ADBE", year)
     fx = SbiAutoSource()
@@ -137,8 +142,11 @@ def build_schedule_fa(year: int = 2025, vested_fy: str = "2025-26",
     rows = list(adobe["rows"])
     account = None
     if include_vested:
-        rows += [_vested_a3_row(h) for h in schedule_fa_holdings(vested_fy)]
-        account = custodial_account(vested_fy)
+        try:
+            rows += [_vested_a3_row(h) for h in schedule_fa_holdings(vested_fy)]
+            account = custodial_account(vested_fy)
+        except FileNotFoundError:
+            pass  # no Vested workbook for this user -> no custodian/ETF rows
     schedule_fa = {"DtlsForeignEquityDebtInterest": rows}
     return {"ScheduleFA": schedule_fa, "_custodial_account_A2": account,
             "_counts": {"adobe": len(adobe["rows"]),

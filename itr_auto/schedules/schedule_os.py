@@ -49,7 +49,10 @@ def _dividend_daterange(divs: list[dict[str, Any]]) -> dict[str, int]:
 def build_schedule_os(fy: str = "2025-26", savings_interest: float = 0.0,
                       domestic_dividend: float = 0.0,
                       term_deposit_interest: float = 0.0) -> dict[str, Any]:
-    divs = dividend_detail(fy)
+    try:
+        divs = dividend_detail(fy)
+    except FileNotFoundError:
+        divs = []                               # no Vested workbook -> no foreign dividend
     foreign_div = sum(d["gross_inr"] for d in divs)
     dividend_gross = _rupees(foreign_div + domestic_dividend)
     savings = _rupees(savings_interest)
@@ -85,7 +88,10 @@ def build_schedule_os(fy: str = "2025-26", savings_interest: float = 0.0,
 def compute_ftc(fy: str = "2025-26", marginal_rate: float = MARGINAL_RATE,
                 tin: str = "<US TIN / passport>") -> dict[str, Any]:
     """Foreign Tax Credit (DTAA sec 90) for the Vested dividend -> FSI / TR / Form 67."""
-    fi = foreign_income_ftc(fy)
+    try:
+        fi = foreign_income_ftc(fy)
+    except FileNotFoundError:
+        fi = {"country": "USA", "dividend_income_inr": 0.0, "tax_paid_inr": 0.0}
     income = fi["dividend_income_inr"]
     tax_paid = fi["tax_paid_inr"]
     tax_payable_india = round(income * marginal_rate, 2)
