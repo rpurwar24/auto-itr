@@ -29,6 +29,7 @@
   button:disabled { opacity:.45; cursor:default; }
   .muted { color:var(--mut); }
   .slot { border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px; }
+  .slot.done { border-left:3px solid var(--ok); }
   .slot .top { display:flex; align-items:center; gap:10px; }
   .badge { width:20px; height:20px; border-radius:50%; display:inline-grid; place-items:center;
           font-size:12px; font-weight:700; flex:none; }
@@ -215,10 +216,22 @@ async function loadChecklist() {
   const {fy, slots} = await (await api(`/${user}/checklist`)).json();
   $("#fyTag").textContent = `· FY ${fy}`;
   const box = $("#checklist"); box.innerHTML = "";
+  // readiness summary: what's present vs what's still required
+  const present = slots.filter(s => s.present);
+  const reqMissing = slots.filter(s => s.required && !s.present);
+  const sum = document.createElement("div");
+  sum.style = "margin-bottom:14px; font-size:13px";
+  sum.innerHTML =
+    `<b style="color:var(--ok)">${present.length}</b> uploaded · ` +
+    (reqMissing.length
+      ? `<b style="color:var(--bad)">${reqMissing.length}</b> required still missing: ` +
+        `<span class="muted">${reqMissing.map(s => s.label).join(", ")}</span>`
+      : `<b style="color:var(--ok)">all required documents present ✓</b> - ready to generate`);
+  box.appendChild(sum);
   for (const s of slots) {
     const badge = s.present ? `<span class="badge ok">✓</span>`
       : (s.required ? `<span class="badge no">!</span>` : `<span class="badge opt">·</span>`);
-    const el = document.createElement("div"); el.className = "slot";
+    const el = document.createElement("div"); el.className = "slot" + (s.present ? " done" : "");
     el.innerHTML = `<div class="top">${badge}<span class="label">${s.label}</span>
       <span class="prov">${s.provider}</span>
       <span class="muted" style="margin-left:auto;font-size:11px">${s.required?"required":"optional"}${s.multiple?" · multiple":""}</span></div>
