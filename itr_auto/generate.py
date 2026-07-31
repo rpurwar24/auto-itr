@@ -29,7 +29,8 @@ from itr_auto.compute.cg_pipeline import current_year_cg
 from itr_auto.parsers.zerodha import parse_zerodha
 from itr_auto.parsers.zerodha_taxpnl import parse_zerodha_taxpnl
 from itr_auto.parsers.bank import parse_bank
-from itr_auto.schema_tools import skeleton_of, validate
+from itr_auto.parsers import portal_prefill
+from itr_auto.schema_tools import skeleton_of, skeleton_itr2, validate
 
 # real portal-prefilled JSON (personal/bank/salary/TDS/TCS/OS + valid utility defaults);
 # falls back to the prior filed return if the prefill isn't present.
@@ -69,16 +70,71 @@ def _load_base(path):
                  data if isinstance(data, dict) and ("Form_ITR2" in data or "PartA_GEN1" in data) else None):
         if isinstance(cand, dict):
             return cand
+    if portal_prefill.is_portal_prefill(data):
+        return _base_from_portal_prefill(data)   # the portal's raw camelCase "Download Prefill"
     if isinstance(itr, dict) and "ITR1" in itr:
         raise ValueError("This looks like an ITR-1 prefill. This tool prepares ITR-2 "
                          "(salary + capital gains + foreign assets). Start an ITR-2 in the "
                          "portal/Utility and use that prefill.")
     keys = list((itr if isinstance(itr, dict) else data).keys())[:10] if isinstance(data, dict) else type(data).__name__
     raise ValueError(
-        "The uploaded Prefill JSON is not in the expected ITR-2 format. "
-        f"Top-level keys found: {keys}. Expected the ITD offline Utility's exported ITR-2 JSON "
-        "(or a prior year's ITR-2 return JSON) - not the portal's raw camelCase 'Download "
-        "Prefill' file.")
+        "The uploaded Prefill JSON is not in a recognised format. "
+        f"Top-level keys found: {keys}. Upload either the portal's 'Download Prefill' JSON or "
+        "the ITD offline Utility's exported ITR-2 JSON.")
+
+
+def _base_from_portal_prefill(prefill: dict) -> dict:
+    """Build a schema-valid ITR-2 base from the portal's camelCase prefill (identity + bank).
+
+    The bare schema skeleton leaves the non-computed metadata blocks empty, so we populate them
+    with valid values here (form + software metadata are non-personal; the ITD Utility re-signs
+    the Digest on Option-3 import, so ours is only a placeholder).
+    """
+    src = prefill.get("personalInfo", {})
+    itr2 = skeleton_itr2()
+
+    itr2["Form_ITR2"] = {
+        "AssessmentYear": "2026", "SchemaVer": "Ver1.0", "FormVer": "Ver1.0", "FormName": "ITR-2",
+        "Description": "For Individuals and HUFs not having income from profits and gains of "
+                       "business or profession"}
+    itr2["CreationInfo"] = {
+        "SWVersionNo": "R1", "SWCreatedBy": "SW10000000", "JSONCreatedBy": "SW10000000",
+        "JSONCreationDate": "2026-07-30", "IntermediaryCity": "Delhi", "Digest": "A" * 43 + "="}
+
+    # ---- PersonalInfo from the prefill; prune the optional blocks the skeleton can't fill ----
+    pi = portal_prefill.personal_info(prefill, skeleton_of("PartA_GEN1", "PersonalInfo", required_only=False))
+    pi["SecondaryAdd"] = "N"
+    pi.pop("AlternateAddress", None)                     # only when SecondaryAdd == Y
+    name = pi.setdefault("AssesseeName", {})
+    if name.get("MiddleName") is None:
+        name["MiddleName"] = ""
+    addr = pi.get("Address", {})
+    addr.pop("Phone", None)                              # optional; skeleton leaves it incomplete
+    for k in [k for k, v in addr.items() if v in (None, "")]:
+        addr.pop(k)                                      # drop optional address fields not prefilled
+    itr2["PartA_GEN1"]["PersonalInfo"] = pi
+
+    # ---- FilingStatus: regime + residential status ----
+    fs = itr2["PartA_GEN1"].setdefault("FilingStatus", {})
+    fs["OptOutNewTaxRegime"] = "N"                       # new regime (default); user can change
+    fs["SeventhProvisio139"] = "N"
+    fs["ItrFilingDueDate"] = "2026-07-31"                # generate overwrites with the live date
+    rs = portal_prefill.residential_status(prefill)
+    if rs:
+        fs["ResidentialStatus"] = rs
+
+    # ---- Verification names (from the prefill) ----
+    decl = itr2.setdefault("Verification", {}).setdefault("Declaration", {})
+    decl["AssesseeVerName"] = src.get("assesseeVerName") or src.get("assesseeName", {}).get("firstName", "")
+    decl["AssesseeVerPAN"] = src.get("assesseVerPan") or src.get("pan", "")
+    decl["FatherName"] = src.get("fatherName", "")
+
+    # ---- bank accounts for refund ----
+    banks = portal_prefill.bank_accounts(prefill)
+    if banks:
+        itr2.setdefault("PartB_TTI", {}).setdefault("Refund", {})["BankAccountDtls"] = {
+            "BankDtlsFlag": "Y", "AddtnlBankDetails": banks}
+    return itr2
 
 
 def _optional(fn, default):
