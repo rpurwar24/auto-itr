@@ -54,6 +54,33 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
     return base
 
 
+def _load_base(path):
+    """Locate the ITR-2 template dict inside an uploaded prefill/return JSON.
+
+    Accepts the shapes we've seen (ITD offline-Utility export / a prior ITR-2 return):
+      {"ITR": {"ITR2": {...}}} | {"ITR2": {...}} | a root-level ITR-2 object.
+    Anything else (an ITR-1 prefill, the portal's raw camelCase prefill, or the wrong file)
+    gets a clear, actionable error instead of a cryptic KeyError deep in the pipeline.
+    """
+    data = json.loads(path.read_text())
+    itr = data.get("ITR") if isinstance(data, dict) else None
+    for cand in (itr.get("ITR2") if isinstance(itr, dict) else None,
+                 data.get("ITR2") if isinstance(data, dict) else None,
+                 data if isinstance(data, dict) and ("Form_ITR2" in data or "PartA_GEN1" in data) else None):
+        if isinstance(cand, dict):
+            return cand
+    if isinstance(itr, dict) and "ITR1" in itr:
+        raise ValueError("This looks like an ITR-1 prefill. This tool prepares ITR-2 "
+                         "(salary + capital gains + foreign assets). Start an ITR-2 in the "
+                         "portal/Utility and use that prefill.")
+    keys = list((itr if isinstance(itr, dict) else data).keys())[:10] if isinstance(data, dict) else type(data).__name__
+    raise ValueError(
+        "The uploaded Prefill JSON is not in the expected ITR-2 format. "
+        f"Top-level keys found: {keys}. Expected the ITD offline Utility's exported ITR-2 JSON "
+        "(or a prior year's ITR-2 return JSON) - not the portal's raw camelCase 'Download "
+        "Prefill' file.")
+
+
 def _optional(fn, default):
     """Run an optional provider's producer; if its documents aren't present, contribute nothing.
 
@@ -94,7 +121,7 @@ def build() -> tuple[dict, dict]:
     d_stcg_sale = _r(dom["stcg_111A"]["sale"]); d_stcg_cost = _r(dom["stcg_111A"]["cost"]); d_stcg = d_stcg_sale - d_stcg_cost
     d_ltcg_sale = _r(dom["ltcg_112A"]["sale"]); d_ltcg_cost = _r(dom["ltcg_112A"]["cost"]); d_ltcg = d_ltcg_sale - d_ltcg_cost
 
-    prior = json.loads(BASE.read_text())["ITR"]["ITR2"]
+    prior = _load_base(BASE)
     itr = copy.deepcopy(prior)                 # start from the real prefill (keeps personal/bank/defaults)
     itr["Form_ITR2"]["AssessmentYear"] = ay
     itr.setdefault("CreationInfo", {})["JSONCreationDate"] = "2026-07-30"
