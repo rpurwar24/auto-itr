@@ -70,7 +70,12 @@ def parse_file(path: str | Path) -> dict[str, Any]:
     ay = (re.search(r"Assessment Year\s+(\d{4}-\d{4})", joined) or [None, None])[1]
     fy = (re.search(r"Financial Year\s+(\d{4}-\d{4})", joined) or [None, None])[1]
 
-    salary_17_1 = sum(components.get(k, 0.0) for k in COMPONENT_LABELS[:7])
+    # the 17(1) salary components are the rows before Perquisites/Profits/Previous-employer.
+    # expose them explicitly so Schedule S groups EVERY one (a component the profile doesn't
+    # map by name must fall to "OTH", never be dropped - see build_schedule_s).
+    salary_components = {k: components.get(k, 0.0) for k in COMPONENT_LABELS[:7]
+                         if k in components}
+    salary_17_1 = sum(salary_components.values())
     perquisite_17_2 = components.get("Perquisites", 0.0)
     gross_salary = salary_17_1 + perquisite_17_2
     net_taxable = _first_number_after(lines, "Net Taxable Salary") or gross_salary
@@ -82,6 +87,7 @@ def parse_file(path: str | Path) -> dict[str, Any]:
         "financial_year": fy,
         "regime": regime,
         "components": components,             # per-component breakup of 17(1) + perquisite
+        "salary_components": salary_components,  # ONLY the 17(1) rows (excl perquisite/profits/prev)
         "salary_17_1": salary_17_1,           # sum of the 7 salary components
         "perquisite_17_2": perquisite_17_2,   # ESOP
         "gross_salary": gross_salary,

@@ -22,16 +22,19 @@ def _rupees(x: float) -> int:
 def build_schedule_s(itcs: dict[str, Any], employer: dict[str, Any] | None = None) -> dict[str, Any]:
     prof = load_profile()
     employer = employer or prof["employer"]
-    component_code = prof["salary_component_codes"]  # label -> code (None => group under OTH)
+    component_code = prof["salary_component_codes"]  # label -> code (missing/None => group under OTH)
     oth_label = prof["salary_oth_label"]             # alphanumeric+spaces only (utility rejects "/")
-    comps = itcs["components"]
+    # iterate the ACTUAL 17(1) salary components (not the profile's code map): any component the
+    # profile doesn't map by name falls to "OTH" so nothing is ever dropped. The utility recomputes
+    # GrossSalary from these NatureOfSalary lines, so this sum MUST equal salary_17_1.
+    salary_comps = itcs.get("salary_components", itcs["components"])
 
     nature_of_salary = []
     oth_total = 0.0
-    for label, code in component_code.items():
-        amt = comps.get(label, 0.0)
+    for label, amt in salary_comps.items():
         if not amt:
             continue
+        code = component_code.get(label)
         if code is None:
             oth_total += amt
         else:
