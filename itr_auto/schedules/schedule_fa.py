@@ -22,7 +22,6 @@ from typing import Any
 from itr_auto.parsers.perquisite import parse_all as perq_all
 from itr_auto.parsers.gain_loss import parse_all as gl_all
 from itr_auto.parsers.vested import schedule_fa_holdings, custodial_account
-from itr_auto.ledger.extract_numbers import extract
 from itr_auto.reference.prices import year_marks
 from itr_auto.reference.fx import SbiAutoSource
 from itr_auto.profile import load as load_profile
@@ -43,13 +42,19 @@ def _holdings_by_vest() -> dict[str, dict[str, float]]:
         rec = h.setdefault(d, {"net_qty": 0.0, "fmv_usd": p["fmv_usd"],
                                "adobe_forex": p["adobe_forex"]})
         rec["net_qty"] += p["net_qty"]
-    # perquisite statements are missing the Dec-2023 ESPP purchase -> supplement from .numbers
+    # This taxpayer's perquisite statements are missing one Dec-2023 ESPP purchase; supplement it
+    # from the .numbers oracle IF that (optional, local-only) source is available. A normal user
+    # whose perquisite statements are complete doesn't need this and won't have numbers-parser.
     if "2023-12-29" not in h:
-        for l in extract()["lots"]:
-            if l["purchase_date"] == "2023-12-29" and l["instrument"] == "ESPP":
-                h["2023-12-29"] = {"net_qty": l["sellable_qty"],
-                                   "fmv_usd": l["purchase_date_fmv_usd"],
-                                   "adobe_forex": l["vest_conversion_rate"]}
+        try:
+            from itr_auto.ledger.extract_numbers import extract
+            for l in extract()["lots"]:
+                if l["purchase_date"] == "2023-12-29" and l["instrument"] == "ESPP":
+                    h["2023-12-29"] = {"net_qty": l["sellable_qty"],
+                                       "fmv_usd": l["purchase_date_fmv_usd"],
+                                       "adobe_forex": l["vest_conversion_rate"]}
+        except Exception:  # noqa: BLE001 - numbers-parser / .numbers not present -> skip supplement
+            pass
     return h
 
 

@@ -1,0 +1,4 @@
+# local development extras (not needed to run the app)
+-r requirements.txt
+pytest==9.1.1             # the local test suite (tests/ is kept local, not published)
+numbers-parser==4.18.5    # read the optional .numbers ground-truth oracle for back-tests

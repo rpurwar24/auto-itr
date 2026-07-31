@@ -14,13 +14,13 @@ from typing import Any
 from itr_auto.parsers.gain_loss import parse_all as gl_all
 from itr_auto.parsers.perquisite import parse_all as perq_all
 from itr_auto.reference.fx import FxService, SbiAutoSource
+from itr_auto.reference.cii import CII
 from itr_auto.compute.capital_gains import compute_gain
-from itr_auto.ledger.extract_numbers import extract
 
 
 def current_year_cg(fy: str) -> dict[str, Any]:
     vest_fx = {p["vest_date"]: p["adobe_forex"] for p in perq_all()}
-    cii = extract()["cost_inflation_index"]
+    cii = CII                                   # public CII table (no .numbers dependency)
     fx = FxService(SbiAutoSource())
 
     stcg = ltcg = 0.0

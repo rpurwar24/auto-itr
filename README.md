@@ -29,6 +29,11 @@ make test       # run the test suite
 `make run`/`check`/`test` **auto-create the `.venv` on first use** if it's missing, so `make run`
 alone is enough on a fresh clone. Everything is scoped to this folder's `.venv` - nothing global.
 
+**Requirements:** Python 3.10+. The easiest path is [uv](https://docs.astral.sh/uv/) - `make setup`
+uses it automatically and fetches a suitable Python for you, so it works even if your system
+`python3` is older. Without uv, install Python 3.10+ first. For the local test suite, use
+`make setup-dev` (adds pytest and the optional `.numbers` oracle reader).
+
 Then in the browser: create a person → fill personal details (or import last year's ITR JSON) →
 upload the documents the checklist asks for → Generate → download the JSON.
 
