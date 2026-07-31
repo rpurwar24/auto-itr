@@ -90,7 +90,13 @@
         <span id="oldItrMsg" class="muted"></span>
       </div>
 
-      <h2 style="margin-top:20px">Bank PDF passwords <span class="muted" style="text-transform:none;letter-spacing:0">(key = hdfc / sbi)</span></h2>
+      <h2 style="margin-top:20px">Bank PDF passwords <span class="muted" style="text-transform:none;letter-spacing:0">- optional</span></h2>
+      <div class="muted" style="font-size:12px; margin-bottom:8px">
+        Only needed if a bank PDF is password-protected. Unprotected interest certificates need none.
+        Hints - <b>HDFC</b>: customer ID · <b>SBI</b>: mobile last-5 digits + DOB (ddmmyy).
+        AIS is auto-unlocked from your PAN + DOB.
+      </div>
+      <datalist id="bankkeys"><option value="hdfc"></option><option value="sbi"></option></datalist>
       <div id="banks"></div>
       <button class="link" id="addBank">+ add bank</button>
 
@@ -162,11 +168,15 @@ async function openUser(name) {
 }
 
 // ---- config ----
+const BANK_HINTS = {hdfc: "customer ID", sbi: "mobile last-5 digits + DOB (ddmmyy)"};
 function bankRow(k="", v="") {
   const d = document.createElement("div"); d.className = "bankrow";
-  d.innerHTML = `<div><label>key</label><input class="bk" value="${k}" placeholder="hdfc"/></div>
-    <div><label>password</label><input class="bv" value="${v}"/></div>
+  d.innerHTML = `<div><label>bank</label><input class="bk" value="${k}" placeholder="hdfc / sbi" list="bankkeys"/></div>
+    <div><label>password <span class="bh muted" style="font-size:11px;text-transform:none"></span></label><input class="bv" value="${v}"/></div>
     <button class="link rm">remove</button>`;
+  const bk = d.querySelector(".bk"), bh = d.querySelector(".bh");
+  const upd = () => { const h = BANK_HINTS[bk.value.trim().toLowerCase()]; bh.textContent = h ? `- ${h}` : ""; };
+  bk.oninput = upd; upd();
   d.querySelector(".rm").onclick = () => d.remove();
   return d;
 }
