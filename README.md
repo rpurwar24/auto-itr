@@ -20,9 +20,14 @@ per-user `config/profile.json`.
 ## Quick start
 
 ```bash
-make setup      # create .venv and install dependencies
+make setup      # create the folder-local .venv + install deps (uses uv if present, else pip)
+make check      # show Python + installed dependency versions (flags anything missing)
 make run        # start the local web app (auto-reload) at http://127.0.0.1:8000
+make test       # run the test suite
 ```
+
+`make run`/`check`/`test` **auto-create the `.venv` on first use** if it's missing, so `make run`
+alone is enough on a fresh clone. Everything is scoped to this folder's `.venv` - nothing global.
 
 Then in the browser: create a person → fill personal details (or import last year's ITR JSON) →
 upload the documents the checklist asks for → Generate → download the JSON.
