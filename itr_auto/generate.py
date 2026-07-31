@@ -69,7 +69,7 @@ def _load_base(path):
                  data.get("ITR2") if isinstance(data, dict) else None,
                  data if isinstance(data, dict) and ("Form_ITR2" in data or "PartA_GEN1" in data) else None):
         if isinstance(cand, dict):
-            return cand
+            return cand, {}                      # ITR-2 export/return: no extra prefill metadata
     if portal_prefill.is_portal_prefill(data):
         return _base_from_portal_prefill(data)   # the portal's raw camelCase "Download Prefill"
     if isinstance(itr, dict) and "ITR1" in itr:
@@ -134,7 +134,10 @@ def _base_from_portal_prefill(prefill: dict) -> dict:
     if banks:
         itr2.setdefault("PartB_TTI", {}).setdefault("Refund", {})["BankAccountDtls"] = {
             "BankDtlsFlag": "Y", "AddtnlBankDetails": banks}
-    return itr2
+    # the prefill's Form-26AS carries the real deductor/collector TANs (for TDS1 / TCS)
+    meta = {"employer": portal_prefill.salary_deductor(prefill),
+            "tcs": portal_prefill.tcs_collector(prefill)}
+    return itr2, meta
 
 
 def _optional(fn, default):
@@ -177,15 +180,24 @@ def build() -> tuple[dict, dict]:
     d_stcg_sale = _r(dom["stcg_111A"]["sale"]); d_stcg_cost = _r(dom["stcg_111A"]["cost"]); d_stcg = d_stcg_sale - d_stcg_cost
     d_ltcg_sale = _r(dom["ltcg_112A"]["sale"]); d_ltcg_cost = _r(dom["ltcg_112A"]["cost"]); d_ltcg = d_ltcg_sale - d_ltcg_cost
 
-    prior = _load_base(BASE)
+    prior, pmeta = _load_base(BASE)
     itr = copy.deepcopy(prior)                 # start from the real prefill (keeps personal/bank/defaults)
     itr["Form_ITR2"]["AssessmentYear"] = ay
     itr.setdefault("CreationInfo", {})["JSONCreationDate"] = "2026-07-30"
     itr["PartA_GEN1"]["FilingStatus"]["ItrFilingDueDate"] = "2026-07-31"
 
+    # employer + TCS collector: prefer the prefill's real Form-26AS TANs, else the profile.
+    # (the profile defaults are non-real placeholders, so we won't emit a schedule with a fake TAN.)
+    _PLACEHOLDER_TANS = {"AAAA00000A", "BBBB00000B"}
+    employer = dict(prof["employer"])
+    if pmeta.get("employer"):
+        employer["TANofEmployer"] = pmeta["employer"]["TAN"]
+        employer["NameOfEmployer"] = pmeta["employer"]["Name"] or employer["NameOfEmployer"]
+    tcs_tan = (pmeta.get("tcs") or {}).get("TAN") or prof["tcs_collector_tan"]
+
     # ---- income schedules ----
     itcs = parse_itcs()
-    itr["ScheduleS"] = build_schedule_s(itcs)
+    itr["ScheduleS"] = build_schedule_s(itcs, employer=employer)
     os_built = build_schedule_os(fy, savings_interest, domestic_dividend, term_deposit_interest)
     os_built.pop("_notes", None)
     os_sk = skeleton_of("ScheduleOS", required_only=False)      # full -> all required fields
@@ -309,20 +321,23 @@ def build() -> tuple[dict, dict]:
         itr.pop("ScheduleFSI", None)
         itr.pop("ScheduleTR1", None)
 
-    # ---- taxes paid ----
-    itr["ScheduleTDS1"] = {"TDSonSalary": [{
-        "EmployerOrDeductorOrCollectDetl": {"TAN": prof["employer"]["TANofEmployer"],
-            "EmployerOrDeductorOrCollecterName": prof["employer"]["NameOfEmployer"]},
-        "IncChrgSal": _r(itcs["income_under_salary"]), "TotalTDSSal": salary_tds}],
-        "TotalTDSonSalaries": salary_tds}
-    if lrs_tcs:
+    # ---- taxes paid ---- (emit only with a real deductor/collector TAN, never a placeholder)
+    if salary_tds and employer["TANofEmployer"] not in _PLACEHOLDER_TANS:
+        itr["ScheduleTDS1"] = {"TDSonSalary": [{
+            "EmployerOrDeductorOrCollectDetl": {"TAN": employer["TANofEmployer"],
+                "EmployerOrDeductorOrCollecterName": employer["NameOfEmployer"]},
+            "IncChrgSal": _r(itcs["income_under_salary"]), "TotalTDSSal": salary_tds}],
+            "TotalTDSonSalaries": salary_tds}
+    else:
+        itr.pop("ScheduleTDS1", None)
+    if lrs_tcs and tcs_tan not in _PLACEHOLDER_TANS:
         itr["ScheduleTCS"] = {"TCS": [{
-            "EmployerOrDeductorOrCollectTAN": prof["tcs_collector_tan"], "TCSCreditOwner": "1",
+            "EmployerOrDeductorOrCollectTAN": tcs_tan, "TCSCreditOwner": "1",
             "TCSCurrFYDtls": {"TCSAmtCollOwnHand": lrs_tcs, "TCSAmtCollSpouseOrOthrHand": 0},
             "TCSClaimedThisYearDtls": {"TCSAmtCollOwnHand": lrs_tcs, "TCSAmtCollSpouseOrOthrHand": 0},
             "AmtCarriedFwd": 0}], "TotalSchTCS": lrs_tcs}
     else:
-        itr.pop("ScheduleTCS", None)          # no LRS remittance -> no TCS
+        itr.pop("ScheduleTCS", None)          # no LRS remittance / no real collector TAN -> no TCS
 
     # ---- Schedule AL: shares = foreign (FA closing) + Indian (Zerodha); deposits = bank + FD ----
     # (AL is only mandatory when total income > 50L; build it only if the prefill carries it)

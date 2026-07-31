@@ -77,6 +77,26 @@ def residential_status(prefill: dict) -> str | None:
     return prefill.get("personalInfo", {}).get("filingStatus", {}).get("residentialStatus")
 
 
+def _deductor(rows: Any) -> dict | None:
+    if isinstance(rows, list) and rows:
+        d = rows[0].get("employerOrDeductorOrCollectDetl", {}) if isinstance(rows[0], dict) else {}
+        if d.get("tan"):
+            return {"TAN": d["tan"], "Name": d.get("employerOrDeductorOrCollecterName", "")}
+    return None
+
+
+def salary_deductor(prefill: dict) -> dict | None:
+    """Employer TAN + name from the prefill's Form-26AS salary-TDS section."""
+    f26 = prefill.get("form26as") or {}
+    return _deductor((f26.get("tdsOnSalaries") or {}).get("tdsOnSalary"))
+
+
+def tcs_collector(prefill: dict) -> dict | None:
+    """TCS collector TAN + name from the prefill's Form-26AS TCS section."""
+    f26 = prefill.get("form26as") or {}
+    return _deductor((f26.get("scheduleTCS") or {}).get("tcs"))
+
+
 def bank_accounts(prefill: dict) -> list[dict]:
     """AddtnlBankDetails rows (IFSCCode/BankName/BankAccountNo/AccountType/UseForRefund)."""
     out = []
