@@ -11,7 +11,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from itr_auto.parsers.vested import dividend_detail, foreign_income_ftc
+from itr_auto.parsers.vested import dividend_detail, foreign_income_ftc, interest_detail
 from itr_auto.profile import load as load_profile
 
 # top marginal rate for this taxpayer (new regime 30% + 15% surcharge + 4% cess).
@@ -53,11 +53,18 @@ def build_schedule_os(fy: str = "2025-26", savings_interest: float = 0.0,
         divs = dividend_detail(fy)
     except FileNotFoundError:
         divs = []                               # no Vested workbook -> no foreign dividend
+    try:
+        # foreign interest on the broker cash balance: no US withholding, so no FTC - it is
+        # simply interest from a source that is neither a savings bank nor a term deposit.
+        foreign_int = sum(i["gross_inr"] for i in interest_detail(fy))
+    except FileNotFoundError:
+        foreign_int = 0.0
     foreign_div = sum(d["gross_inr"] for d in divs)
     dividend_gross = _rupees(foreign_div + domestic_dividend)
     savings = _rupees(savings_interest)
     term_dep = _rupees(term_deposit_interest)
-    interest_gross = savings + term_dep
+    other_int = _rupees(foreign_int)
+    interest_gross = savings + term_dep + other_int
     total = dividend_gross + interest_gross
 
     return {
@@ -66,7 +73,8 @@ def build_schedule_os(fy: str = "2025-26", savings_interest: float = 0.0,
             "DividendOthThan22e": dividend_gross,
             "IntrstFrmSavingBank": savings,
             "InterestGross": interest_gross,
-            "IntrstFrmTermDeposit": term_dep, "IntrstFrmIncmTaxRefund": 0, "IntrstFrmOthers": 0,
+            "IntrstFrmTermDeposit": term_dep, "IntrstFrmIncmTaxRefund": 0,
+            "IntrstFrmOthers": other_int,
             "OthersGross": 0, "AnyOtherIncome": 0,
             "Deductions": {"Expenses": 0, "Depreciation": 0, "IntExp57": 0,
                            "DeductionUs57iia": 0, "UsrIntExp57": 0, "TotDeductions": 0},

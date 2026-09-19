@@ -9,5 +9,9 @@
   "us_tin": "",
   "shares_value_mar31": null,
   "salary_tds": 0,
-  "lrs_tcs": 0
+  "lrs_tcs": 0,
+  "_filed_on": "date the return was e-filed; drives 234A (nil if on or before the due date). Leave absent before filing.",
+  "_challans": "FALLBACK ONLY. Tax payments are read from the challan receipt PDFs you drop into sources/portal/<fy>/. List one here {bsr_code, serial, date, amount} only if you no longer have its receipt. Advance vs self-assessment tax is decided by the DATE (on or before 31-Mar of the FY = advance tax).",
+  "_revises": "DATA for a 139(5) revision {acknowledgement, original_filed_on}. Inert unless you pass --revised; the flag decides, never this block.",
+  "challans": []
 }

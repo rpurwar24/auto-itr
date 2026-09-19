@@ -121,6 +121,31 @@ def dividend_detail(fy: str = "2025-26") -> list[dict[str, Any]]:
     return out
 
 
+def interest_detail(fy: str = "2025-26") -> list[dict[str, Any]]:
+    """Foreign INTEREST credited on the cash balance, per payment (gross INR + date).
+
+    Small but real income, and easy to miss: it is not in the dividend block, and the
+    originally filed AY2026-27 return omitted it.
+    It carries no US withholding, so it claims no foreign tax credit - it simply belongs in
+    Schedule OS as interest from a source other than a savings bank or term deposit.
+    """
+    rows = _read_sheets(_main_summary(fy))[0]
+    grab, out = False, []
+    for r in rows:
+        head = str(r[0]).strip() if r else ""
+        if head == "Interest Income":
+            grab = True
+            continue
+        if grab:
+            if head in ("SLIP Income", "Income from Spinoff", "Summary") or not head:
+                break
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", head) and len(r) >= 4:
+                amt_usd, rate = float(r[1]), float(r[2])
+                out.append({"date": head, "gross_usd": amt_usd, "rate": rate,
+                            "gross_inr": round(amt_usd * rate, 2)})
+    return out
+
+
 def foreign_income_ftc(fy: str = "2025-26") -> dict[str, Any]:
     """Foreign dividend income + tax paid abroad (for Schedule OS / FSI / TR / Form 67)."""
     rows = _read_sheets(_find(fy, "Form 67"))[0]

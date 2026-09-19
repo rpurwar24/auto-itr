@@ -28,3 +28,10 @@ config/profile.json
 # tests back-test against real filed figures (income) -> keep local, never publish
 tests/
 
+# filled statutory forms carry real income/tax figures (the blank template is not in the repo)
+Income Tax Form 67.csv
+*Form 67*.csv
+
+# local tool caches
+.scout/
+

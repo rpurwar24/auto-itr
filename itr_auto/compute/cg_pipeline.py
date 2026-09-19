@@ -18,8 +18,30 @@ from itr_auto.reference.cii import CII
 from itr_auto.compute.capital_gains import compute_gain
 
 
+def vest_rates(perq_rows: list[dict[str, Any]] | None = None) -> dict[str, float]:
+    """Adobe's vest-date forex rate, one per vest date, from the ESOP statements.
+
+    Adobe repeats some grants as ZERO-QUANTITY lines carrying a slightly different rate. Built
+    as a plain dict comprehension those phantom rows win by parse order: on 2020-01-24 the real
+    grant lines both say 71.3250 while two zero-qty rows say 71.2404, and last-wins took the
+    phantom, understating the cost basis of every share from that vest. Skip rows that delivered
+    no shares, and refuse to pick when two REAL lines disagree - that is a data problem, not a
+    default.
+    """
+    rates: dict[str, float] = {}
+    for p in perq_rows if perq_rows is not None else perq_all():
+        if not p["gross_qty"]:
+            continue
+        seen = rates.setdefault(p["vest_date"], p["adobe_forex"])
+        if seen != p["adobe_forex"]:
+            raise ValueError(
+                f"conflicting Adobe forex rates for vest {p['vest_date']}: {seen} vs "
+                f"{p['adobe_forex']} - resolve against the ESOP statement before computing CG")
+    return rates
+
+
 def current_year_cg(fy: str) -> dict[str, Any]:
-    vest_fx = {p["vest_date"]: p["adobe_forex"] for p in perq_all()}
+    vest_fx = vest_rates()
     cii = CII                                   # public CII table (no .numbers dependency)
     fx = FxService(SbiAutoSource())
 
